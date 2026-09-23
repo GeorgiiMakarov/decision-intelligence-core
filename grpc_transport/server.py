@@ -117,25 +117,26 @@ class DecisionIntelligenceCoreServicer(core_pb2_grpc.DecisionIntelligenceCoreSer
             resp.proof_path.add(hash=bytes.fromhex(node["hash"]), position=position)
         return resp
 
-    async def serve(state: AppState, port: int = 50051) -> None:
-        server = grpc.aio.server()
-        core_pb2_grpc.add_DecisionIntelligenceCoreServicer_to_server(
-            DecisionIntelligenceCoreServicer(state), server
-        )
-        server.add_insecure_port(f"[::]:{port}")
-        await server.start()
-        logger.info("gRPC server listening on :%d", port)
-        await server.wait_for_termination()
+async def serve(state: AppState, port: int = 50051) -> None:
+    server = grpc.aio.server()
+    core_pb2_grpc.add_DecisionIntelligenceCoreServicer_to_server(
+        DecisionIntelligenceCoreServicer(state), server
+    )
+    server.add_insecure_port(f"[::]:{port}")
+    await server.start()
+    logger.info("gRPC server listening on :%d", port)
+    await server.wait_for_termination()
 
-    async def _main() -> None:
-        from api.deps import build_app_state
+async def _main() -> None:
+    from api.deps import build_app_state
 
-        state = await build_app_state()
-        await serve(state)
+    state = await build_app_state()
+    await serve(state)
 
-        if __name__ == "__main__":
-            logging.basicConfig(level=logging.INFO)
-            asyncio.run(_main())
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(_main())
 
 
 

@@ -60,7 +60,7 @@ postgres: {condition: service_healthy}
 
 core-grpc:
 build: .
-command: ["python", "-m", "grpc.server"]
+command: ["python", "-m", "grpc_transport.server"]
 ports: ["50051:50051"]
 environment:
 CORE_ENV: docker

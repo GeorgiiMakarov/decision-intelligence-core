@@ -52,6 +52,11 @@ python tests/verify_core_logic_stdlib.py  # 311 stdlib-only checks
 
 ## Known gaps
 
-- `grpc_transport/core_pb2.py` / `core_pb2_grpc.py` are not committed; generate with the protoc command above.
-- `infrastructure/rfc3161_tsa.py` is the base TSA interface; national CA integration is out of scope for the core.
-- Postgres/Redis/Kafka adapters are implemented against the port interfaces; integration tests against live services are not included.
+- `infrastructure/rfc3161_tsa.py` remains the thin base TSA shape; alongside
+  it, `infrastructure/rfc3161_client.py` is a working pure-stdlib RFC 3161
+  client (DER request/response, PKIStatus + messageImprint verification;
+  CMS signature chain validation is not implemented — see its docstring).
+- Postgres/Redis/Kafka adapters are implemented against the port interfaces;
+  `tests/test_infra_live.py` exercises them against live services but skips
+  when the services (or driver packages) are unavailable — run it with
+  `docker compose up -d` for the real coverage.
