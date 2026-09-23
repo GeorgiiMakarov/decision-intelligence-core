@@ -46,39 +46,40 @@ class _JsonFormatter(logging.Formatter):
             payload["exc_info"] = self.formatException(record.exc_info)
             return json.dumps(payload)
 
-    def _configure_logging() -> None:
-        handler = logging.StreamHandler()
-        handler.setFormatter(_JsonFormatter())
-        root = logging.getLogger()
-        root.handlers = [handler]
-        root.setLevel(logging.INFO)
+def _configure_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_JsonFormatter())
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(logging.INFO)
 
-        # --- OpenTelemetry (constraints: 'OpenTelemetry tracing') ------------------
+    # --- OpenTelemetry (constraints: 'OpenTelemetry tracing') ------------------
 
-        # Kept optional: importing opentelemetry is not required to run the service
+    # Kept optional: importing opentelemetry is not required to run the service
 
-        # with tracing disabled, since it is not installed in every environment this
+    # with tracing disabled, since it is not installed in every environment this
 
-        # code might be reviewed in (it was not available in the sandbox that wrote
+    # code might be reviewed in (it was not available in the sandbox that wrote
 
-        # this file — see README 'Known gaps').
+    # this file — see README 'Known gaps').
 
-    def _configure_tracing(app: FastAPI) -> None:
-        try:
-            from opentelemetry import trace
-            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-            from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+def _configure_tracing(app: FastAPI) -> None:
+    try:
+        from opentelemetry import trace
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
-            provider = TracerProvider()
-            provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
-            trace.set_tracer_provider(provider)
-            FastAPIInstrumentor.instrument_app(app)
-        except ImportError:
-            logging.getLogger("core.api").warning(
-                "opentelemetry not installed; tracing disabled. "
-                "pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi to enable."
-            )
+        provider = TracerProvider()
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+        trace.set_tracer_provider(provider)
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        logging.getLogger("core.api").warning(
+            "opentelemetry not installed; tracing disabled. "
+            "pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi to enable."
+        )
+
 
 async def _merkle_closer_loop(state: AppState, interval_s: float = 1.0) -> None:
     while True:
@@ -119,8 +120,8 @@ async def lifespan(app: FastAPI):
         await state.merkle_anchor.force_close()  # flush on shutdown, don't lose a partial batch
         await state.event_bus.stop()
 
-        app = FastAPI(title="Decision Intelligence Layer — Core", version="1.2.0", lifespan=lifespan)
-        _configure_tracing(app)
+app = FastAPI(title="Decision Intelligence Layer — Core", version="1.2.0", lifespan=lifespan)
+_configure_tracing(app)
 
 def _state(request: Request) -> AppState:
     return request.app.state.core

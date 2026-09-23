@@ -39,63 +39,63 @@ class AppState:
     projector: ScoreboardProjector
     required_metrics_by_decision: dict[str, list[str]]
 
-    async def build_app_state() -> AppState:
-        """Async on purpose (not just sync-with-a-wrapper): PostgresAuditTrail.connect()
+async def build_app_state() -> AppState:
+    """Async on purpose (not just sync-with-a-wrapper): PostgresAuditTrail.connect()
 below awaits real pool creation + schema migration, and api/main.py's
 lifespan is already an async context manager, so `await build_app_state()`
 there is the natural call, not a workaround."""
-        env = os.environ.get("CORE_ENV", "local")
+    env = os.environ.get("CORE_ENV", "local")
 
-        if env == "docker":
-            # Imported here, not at module load time, so `import api.deps` does
-            # not require aiokafka/redis/asyncpg to be installed just to run
-            # unit tests locally against the Memory* adapters.
-            from infrastructure.kafka_adapter import KafkaEventBus
-            from infrastructure.postgres_audit_trail import PostgresAuditTrail
-            from infrastructure.redis_adapter import RedisProjectionStore
+    if env == "docker":
+        # Imported here, not at module load time, so `import api.deps` does
+        # not require aiokafka/redis/asyncpg to be installed just to run
+        # unit tests locally against the Memory* adapters.
+        from infrastructure.kafka_adapter import KafkaEventBus
+        from infrastructure.postgres_audit_trail import PostgresAuditTrail
+        from infrastructure.redis_adapter import RedisProjectionStore
 
-            audit_trail: AuditTrail = await PostgresAuditTrail.connect(
-            os.environ.get("DATABASE_URL", "postgresql://core:core@postgres:5432/core")
-            )
-            projection_store: ProjectionStore = RedisProjectionStore(
-            os.environ.get("REDIS_URL", "redis://redis:6379/0")
-            )
-            event_bus: EventBus = KafkaEventBus(
-            bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092"),
-            consumer_group="decision-intelligence-core",
-            )
-            tsa: TimestampAuthority = MemoryTsa()  # TODO: Rfc3161HttpTsa once a
-            # concrete profile endpoint (e.g. NUTS RK) is configured — see
-            # infrastructure/rfc3161_tsa.py; left pluggable-but-unset here
-            # deliberately rather than guessing an endpoint.
-        else:
-            audit_trail = MemoryAuditTrail()
-            projection_store = MemoryProjectionStore()
-            event_bus = MemoryEventBus()
-            tsa = MemoryTsa()
-
-        signer: Signer = Ed25519Signer(key_id=os.environ.get("SIGNER_KEY_ID", "core-dev-v1"))
-
-        max_leaves = int(os.environ.get("MERKLE_MAX_LEAVES", "1000"))
-        max_seconds = float(os.environ.get("MERKLE_MAX_SECONDS", "5"))
-        merkle_builder = MerkleBatchBuilder(max_leaves=max_leaves, max_seconds=max_seconds)
-
-        command_handler = CommandHandler(
-        audit_trail=audit_trail, event_bus=event_bus,
-        merkle_builder=merkle_builder, signer=signer, tsa=tsa,
+        audit_trail: AuditTrail = await PostgresAuditTrail.connect(
+        os.environ.get("DATABASE_URL", "postgresql://core:core@postgres:5432/core")
         )
-        projector = ScoreboardProjector(audit_trail=audit_trail, projection_store=projection_store)
-        merkle_anchor = MerkleAnchorService(
-        builder=merkle_builder, audit_trail=audit_trail,
-        projection_store=projection_store, signer=signer, tsa=tsa,
+        projection_store: ProjectionStore = RedisProjectionStore(
+        os.environ.get("REDIS_URL", "redis://redis:6379/0")
         )
+        event_bus: EventBus = KafkaEventBus(
+        bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092"),
+        consumer_group="decision-intelligence-core",
+        )
+        tsa: TimestampAuthority = MemoryTsa()  # TODO: Rfc3161HttpTsa once a
+        # concrete profile endpoint (e.g. NUTS RK) is configured — see
+        # infrastructure/rfc3161_tsa.py; left pluggable-but-unset here
+        # deliberately rather than guessing an endpoint.
+    else:
+        audit_trail = MemoryAuditTrail()
+        projection_store = MemoryProjectionStore()
+        event_bus = MemoryEventBus()
+        tsa = MemoryTsa()
 
-        return AppState(
-        audit_trail=audit_trail, projection_store=projection_store, event_bus=event_bus,
-        signer=signer, tsa=tsa, merkle_builder=merkle_builder, merkle_anchor=merkle_anchor,
-        command_handler=command_handler, projector=projector,
-        required_metrics_by_decision={},
-        )
+    signer: Signer = Ed25519Signer(key_id=os.environ.get("SIGNER_KEY_ID", "core-dev-v1"))
+
+    max_leaves = int(os.environ.get("MERKLE_MAX_LEAVES", "1000"))
+    max_seconds = float(os.environ.get("MERKLE_MAX_SECONDS", "5"))
+    merkle_builder = MerkleBatchBuilder(max_leaves=max_leaves, max_seconds=max_seconds)
+
+    command_handler = CommandHandler(
+    audit_trail=audit_trail, event_bus=event_bus,
+    merkle_builder=merkle_builder, signer=signer, tsa=tsa,
+    )
+    projector = ScoreboardProjector(audit_trail=audit_trail, projection_store=projection_store)
+    merkle_anchor = MerkleAnchorService(
+    builder=merkle_builder, audit_trail=audit_trail,
+    projection_store=projection_store, signer=signer, tsa=tsa,
+    )
+
+    return AppState(
+    audit_trail=audit_trail, projection_store=projection_store, event_bus=event_bus,
+    signer=signer, tsa=tsa, merkle_builder=merkle_builder, merkle_anchor=merkle_anchor,
+    command_handler=command_handler, projector=projector,
+    required_metrics_by_decision={},
+    )
 
 
 

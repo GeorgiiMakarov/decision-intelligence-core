@@ -57,6 +57,12 @@ def evaluate_policy(
     )
 
     w = weights or {name: 1.0 for name in required_metrics}
+    # `committed` can be empty when `required_metrics` is empty (e.g. the
+    # scoreboard is queried before any required metrics were registered for
+    # this decision, which is always the case via the REST wiring). The I4
+    # missing-metrics gate above already ran, so this is a vacuously complete
+    # set that scores 0.0 — never an UnboundLocalError.
+    base_score = 0.0
     numeric_terms = []
     for name, record in committed.items():
         numeric_val = record.value if isinstance(record.value, (int, float)) else 1.0
