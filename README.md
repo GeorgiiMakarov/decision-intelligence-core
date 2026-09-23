@@ -1,242 +1,57 @@
-# Decision Intelligence Core
+# decision-intelligence-core
 
-**Domain-Agnostic Decision Intelligence & AI Orchestration Framework**
- 
- Высокопроизводительное ядро принятия решений на базе **Event Sourcing**, **CQRS** и криптографического **Merkle-Anchoring** с offline-верифицируемыми доказательствами вхождения (Inclusion Proofs).
+Decision Intelligence Framework v1.2 — Core service. A decision-logging and audit core with Clean Architecture / DDD layout: domain events are appended to an immutable audit trail, anchored in Merkle batches (Ed25519-signed, RFC 3161 timestamped), and projected into a queryable scoreboard.
 
+**Status:** Restored from a damaged monolithic bundle on 2026-09-23. All 29 pytest tests pass; the standalone `tests/verify_core_logic_stdlib.py` (311 checks, stdlib only) passes.
 
+## Verified invariants (only these are claimed)
 
+- **I3** — empty `evidence_refs` is rejected (`MetricRejected`, reason `MISSING_EVIDENCE`), never committed.
+- **I4** — incomplete metric sets project to `INSUFFICIENT_DATA`, never a numeric score.
+- **I6** — a repeated `idempotency_key` returns `DUPLICATE_IGNORED`; the original leaf is untouched.
+- **I7** — superseding appends a new `MetricSuperseded` event; the original leaf hash is byte-identical and never rewritten.
 
-## Обзоp системы
+Merkle inclusion proofs verify offline (`verify_inclusion_proof`); Ed25519 signatures round-trip and fail on wrong-key/tampered input.
 
-**Decision Intelligence Core** — это изолированный, домен-агностический сервис, обеспечивающий детерминированную обработку метрик, проверку регламентов (Policy Evaluation), аудит рисков и криптографическую фиксацию решений.
+## Layout
 
-Система гарантирует полное доказательство неизменяемости данных (Immutability) и обеспечивает детерминированное принятие решений в условиях неполных данных.
-
-
-
-
-### Ключевые возможности:
-
-- **Event Sourcing & CQRS:** Полное разделение контуров записи (`Command Handler` / `Audit Trail`) и чтения (`Scoreboard Projector`).
-  
-- **Криптографический анкоринг (Merkle Batching):** Автоматическое пакетирование событий в деревья Меркла с генерацией `Ed25519` подписей и `RFC 3161 TSA` штампов времени.
-
-- **Offline-Inclusion Proofs:** Возможность независимой математической проверки наличия любого факта/метрики в зафиксированном блоке без доступа к центральной БД.
-  
-- **Строгое соблюдение бизнес-инвариантов (I3, I4, I6, I7):** Гарантия идемпотентности, проверка наличия доказательств (Evidence) и корректная обработка устаревания метрик.
-
-- **Dual Transport Layer:** Одновременная поддержка **REST (FastAPI / OpenAPI)** и **gRPC (`google.protobuf.Struct`)** для высоконагруженного межсервисного взаимодействия.
-
-
-
-
-## Архитектура системы
-
-Проект спроектирован по принципам **Clean Architecture** и **Domain-Driven Design (DDD)**. Наружные слои зависят от внутренних, абстракции определены через Python `Protocol`.
-
-```mermaid
-flowchart TD
-    subgraph Clients["Clients / External Runtimes"]
-        A[AI Orchestrator / Human Review]
-    end
-
-    subgraph Transports["Transport Layer"]
-        REST[FastAPI REST API :8000]
-        GRPC[gRPC Core Server :50051]
-    end
-
-    subgraph Application["Application Layer (Core Logic)"]
-        CH[Command Handler]
-        PE[Policy Evaluator]
-        SP[Scoreboard Projector]
-        MAS[Merkle Anchor Service]
-    end
-
-    subgraph Storage["Infrastructure Layer"]
-        Kafka[Event Bus - Apache Kafka]
-        PG[(PostgreSQL - Audit Trail)]
-        Redis[(Redis - Projection Store)]
-    end
-
-    A -->|REST / gRPC| REST & GRPC
-    REST & GRPC --> CH
-    CH -->|Invariants I3/I6| PG
-    CH -->|Events| Kafka
-    Kafka --> SP
-    SP -->|Read Side| Redis
-    Kafka --> MAS
-    MAS -->|Merkle Root + Ed25519 + TSA| PG
+```
+domain/          Enums, Pydantic models, domain events (no infrastructure imports)
+interfaces/      Ports: AuditTrail, EventBus, ProjectionStore, Signer, Tsa (Protocols)
+application/     CommandHandler, ScoreboardProjector, PolicyEvaluator,
+                 MetricsRegistry, RiskMatrix, Merkle batching + anchor service,
+                 EvidenceRegistry, CompletionCriteria, EventDispatcher
+infrastructure/  In-memory adapters (tests), Postgres audit trail, Redis, Kafka,
+                 Ed25519 signer (cryptography), RFC 3161 TSA client (base interface)
+api/             FastAPI app (REST): POST /v1/metrics, GET /v1/scoreboard, GET /v1/proofs
+grpc_transport/  gRPC servicer (same application layer as REST); generated stubs via:
+                   python -m grpc_tools.protoc -I grpc_transport \
+                     --python_out=grpc_transport --grpc_python_out=grpc_transport \
+                     grpc_transport/core.proto
+tests/           pytest suite (29 tests) + verify_core_logic_stdlib.py (stdlib-only)
+openapi.yaml     Hand-maintained OpenAPI 3.1 (diff against app.openapi() after route changes)
+docker-compose.yml  Postgres, Redis, Kafka for local integration runs
 ```
 
+`grpc_transport/` was renamed from `grpc/` during restoration — the old name shadowed the pip-installed `grpc` framework package on `sys.path`.
 
+## Quickstart
 
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt   # tests, lint, typecheck
 
-## Гарантируемые инварианты ядра:
+pytest -q                              # 29 tests
+python tests/verify_core_logic_stdlib.py  # 311 stdlib-only checks
+```
 
-I3 (Evidence Boundary)
+## Extension point: Domain Profiles
 
-Прием метрики отклоняется (422 / INVALID_ARGUMENT), если список evidence_refs пуст.
+`UpdateMetricCommand.runtime_context` carries caller-specific context (e.g. planner version, session id) through the pipeline without changing the core. Domain-specific mappings (event → metric, policy thresholds) live outside this package and plug in via `runtime_context` — see `docs/domain-profiles/` for examples.
 
-реализация:
-application/command_handler.py
+## Known gaps
 
-
-
-I4 (Policy Safety)
-
-Неполнота данных не приводит к сбою: политика возвращает INSUFFICIENT_DATA.
-
-реализация:
-application/policy_evaluator.py
-
-
-
-I6 (Strict Idempotency)
-
-Повторный запрос с существующим idempotency_key возвращает DUPLICATE_IGNORED без записи.
-
-реализация:
-infrastructure/memory_adapters.py / DB
-
-
-
-I7 (Metric Superseding)
-
-Выпуск новой версии метрики не меняет и не удаляет предыдущие записи в Audit Trail.
-
-реализация:
-domain/events.py
-
-
-
-
-## Структура проекта
-
-decision-intelligence-core/
-├── domain/                  # Pure Business Logic & Pydantic Models (Zero DB/API deps)
-│   ├── events.py            # Event Definitions (_RuntimeEvent)
-│   └── models.py            # MetricRecord, ScoreboardState, MerkleProof
-├── interfaces/              # Abstractions (Protocols): AuditTrail, Signer, TSA, EventBus
-├── application/             # Use Cases & Decision Logic
-│   ├── command_handler.py   # Write-side processing & Invariants check
-│   ├── merkle.py            # Pure Merkle Tree construction & Proof verification
-│   ├── merkle_anchor_service.py # Batching, Ed25519 Signing, TSA Timestamping
-│   ├── policy_evaluator.py  # Rule Engine & Policy Execution
-│   └── scoreboard_projector.py # Read-side projection rebuilder
-├── infrastructure/          # Concrete Implementations (Kafka, Redis, Postgres, Ed25519)
-├── api/                     # FastAPI App, Schemas, Dependency Injection
-├── grpc/                    # core.proto & Async gRPC Server implementation
-└── tests/                   # Verification Scripts & Unit/Integration Test Suite
-
-
-
-
-## Быстрый старт
-
-### Вариант 1: Docker Compose (Full Stack)
-
-Запуск полного окружения с Kafka, Redis, Postgres и сервисами Core:
-
-# 1. Подготовка окружения
-cp .env.example .env
-
-# 2. Запуск контейнеров
-make docker-up
-
-
-После запуска доступны:
-
-- **REST API:** http://localhost:8000/docs (Swagger UI)
-- **gRPC Endpoint:** localhost:50051
-
-
-
-
-### Вариант 2: Локальная разработка (In-Memory Mode)
-
-Для автономного запуска без внешних инфраструктурных сервисов (используются In-Memory адаптеры):
-
-# 1. Установка зависимостей
-
-make install-dev
-
-# 2. Запуск фундаментальной проверки логики ядра (Без внешних сетей/БД)
-
-make verify-core
-
-# 3. Запуск REST API локально
-
-make run-api
-
-
-
-
-### Вариант 3: GitHub Codespaces
-
-Репозиторий содержит готовую конфигурацию .devcontainer/. При открытии в Codespaces автоматически поднимается закрытый Docker-контур, генерируются gRPC-stubs и разворачивается готовая dev-среда.
-
-
-
-
-## Тестирование и верификация
-
-Система включает двухуровневый контур верификации:
-
-1. **Standalone Core Verification (make verify-core):**
-Автономный проверочный скрипт (tests/verify_core_logic_stdlib.py), использующий **только Python stdlib и cryptography**.
-    - Выполняет **30+ изолированных проверок**: формулы хэширования листьев, генерацию и порчу деревьев Меркла, проверки offline-proofs, лимиты батчирования, подписи Ed25519 и работу инвариантов I3/I4/I6/I7.
-
-
-2. **Full Integration Suite (make test):**
-Набор pytest-тестов (tests/unit/, tests/integration/) для комплексной проверки async-компонентов, gRPC-контрактов и REST-эндпоинтов.
-
-
-
-
-## Примеры взаимодействия (REST API)
-
-### 1. Отправка метрики (UpdateMetric)
-
-curl -X POST http://localhost:8000/v1/metrics \
--H "Content-Type: application/json" \
--d '{
-"decision_id": "dd-8f14e45f",
-"metric_name": "kdn_limit_check",
-"value": "WITHIN_LIMIT",
-"idempotency_key": "dd-8f14e45f-kdn-v1",
-"evidence_refs": ["ev-91a4e5f3"],
-"proposed_by": "ai-orchestrator",
-"runtime_context": {"planner_version": "2.3.0"}
-}'
-
-# Response: 202 ACCEPTED {"status": "ACCEPTED"}
-
-
-
-**2. Запрос оффлайн-доказательства (Merkle Proof)**
-
-curl "http://localhost:8000/v1/merkle-proof?decision_id=dd-8f14e45f&metric_name=kdn_limit_check"
-
-
-
-
-## Спецификация и расширяемость
-
-- **TSA (Time Stamping Authority):** Модуль infrastructure/rfc3161_tsa.py содержит базовый интерфейс. Реализация парсинга ASN.1 расширяется под конкретные национальные или корпоративные удостоверяющие центры (например, НУЦ РК / КЦМР для банковского профиля).
-
-- **Domain Profiles:** Core-слой принимает runtime_context как универсальный pydantic.JsonValue / google.protobuf.Struct, позволяя поверх ядра подключать специфичные доменные профили (Banking, GameDev, Construction).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- `grpc_transport/core_pb2.py` / `core_pb2_grpc.py` are not committed; generate with the protoc command above.
+- `infrastructure/rfc3161_tsa.py` is the base TSA interface; national CA integration is out of scope for the core.
+- Postgres/Redis/Kafka adapters are implemented against the port interfaces; integration tests against live services are not included.

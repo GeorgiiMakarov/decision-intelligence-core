@@ -1,0 +1,100 @@
+
+syntax = "proto3";
+
+package decisionintelligence.core.v1;
+
+import "google/protobuf/struct.proto";
+
+// Decision Intelligence Framework v1.2 - Core Specification, section 1.7.
+// Same 3 methods as the REST API (api/main.py) - both transports call into
+// the same application layer, see grpc/server.py.
+
+service DecisionIntelligenceCore {
+rpc UpdateMetric (UpdateMetricRequest) returns (UpdateMetricResponse);
+rpc GetScoreboard (GetScoreboardRequest) returns (ScoreboardState);
+rpc GetMerkleProof (GetMerkleProofRequest) returns (MerkleProof);
+}
+
+message UpdateMetricRequest {
+string decision_id = 1;
+string metric_name = 2;
+bytes value = 3;              // JSON-encoded, value type is metric-specific
+string idempotency_key = 4;
+repeated string evidence_refs = 5;
+string proposed_by = 6;
+// JsonValue on the Python side (domain/events.py, domain/models.py):
+// map<string,string> cannot carry that (no nesting, no non-string values),
+// so this is google.protobuf.Struct, protobuf's actual JSON-object
+// equivalent. Still opaque - Core never parses it either way (section 1.4).
+google.protobuf.Struct runtime_context = 7;
+}
+
+message UpdateMetricResponse {
+enum Status {
+STATUS_UNSPECIFIED = 0;
+ACCEPTED = 1;
+DUPLICATE_IGNORED = 2;
+REJECTED_MISSING_EVIDENCE = 3;
+}
+Status status = 1;
+string leaf_hash = 2;  // empty unless status == ACCEPTED
+}
+
+message GetScoreboardRequest {
+string decision_id = 1;
+}
+
+enum TrustScoreStatus {
+TRUST_SCORE_STATUS_UNSPECIFIED = 0;
+INSUFFICIENT_DATA = 1;  // I4 - never fabricate a score from missing data
+}
+
+message MetricEntry {
+string metric_name = 1;
+bytes value = 2;
+repeated string evidence_refs = 3;
+int64 committed_at_unix_ms = 4;
+string status = 5;
+}
+
+message ScoreboardState {
+string decision_id = 1;
+oneof trust_score_result {
+double trust_score = 2;
+TrustScoreStatus insufficient_reason = 3;
+}
+string policy_verdict = 4;
+repeated MetricEntry metrics = 5;
+string merkle_root_ref = 6;
+int64 rebuilt_at_unix_ms = 7;
+int64 merkle_timestamp_unix_ms = 8;  // 0 if merkle_root_ref is unset; added
+// alongside the runtime_context/Struct change after noticing domain.models
+// grew this field but the proto contract was never updated to match.
+}
+
+message GetMerkleProofRequest {
+string decision_id = 1;
+string metric_name = 2;
+}
+
+message ProofNode {
+enum Position {
+POSITION_UNSPECIFIED = 0;
+LEFT = 1;
+RIGHT = 2;
+}
+bytes hash = 1;
+Position position = 2;
+}
+
+message MerkleProof {
+bytes leaf_hash = 1;
+repeated ProofNode proof_path = 2;
+bytes root = 3;
+bytes anchor_signature = 4;          // Ed25519
+int64 anchor_timestamp_unix_ms = 5;  // RFC 3161 / pluggable TSA
+}
+
+
+
+

@@ -1,0 +1,55 @@
+
+[project]
+name = "decision-intelligence-core"
+version = "1.2.0"
+description = "Decision Intelligence Framework v1.2 - Core service"
+requires-python = ">=3.11"
+dependencies = [
+"fastapi>=0.115",
+"uvicorn[standard]>=0.30",
+"pydantic>=2.7",
+"grpcio>=1.64",
+"grpcio-tools>=1.64",
+"aiokafka>=0.11",
+"redis>=5.0",
+"asyncpg>=0.29",
+"cryptography>=42.0",
+"httpx>=0.27",
+"opentelemetry-sdk>=1.25",
+"opentelemetry-instrumentation-fastapi>=0.46b0",
+]
+
+[project.optional-dependencies]
+dev = [
+"pytest>=8.2",
+"pytest-asyncio>=0.23",
+"ruff>=0.5",
+"black>=24.4",
+"mypy>=1.10",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.black]
+line-length = 110
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+namespace_packages = true
+explicit_package_bases = true
+
+
+
+
