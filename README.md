@@ -2,7 +2,7 @@
 
 Decision Intelligence Framework v1.2 — Core service. A decision-logging and audit core with Clean Architecture / DDD layout: domain events are appended to an immutable audit trail, anchored in Merkle batches (Ed25519-signed, RFC 3161 timestamped), and projected into a queryable scoreboard.
 
-**Status:** Restored from a damaged monolithic bundle on 2026-09-23. All 29 pytest tests pass; the standalone `tests/verify_core_logic_stdlib.py` (311 checks, stdlib only) passes.
+**Status:** Restored from a damaged monolithic bundle on 2026-09-23. 63 pytest tests pass (1 skipped: the Kafka live test needs a broker); the standalone `tests/verify_core_logic_stdlib.py` (311 checks, stdlib only) passes.
 
 ## Verified invariants (only these are claimed)
 
@@ -23,13 +23,16 @@ application/     CommandHandler, ScoreboardProjector, PolicyEvaluator,
                  EvidenceRegistry, CompletionCriteria, EventDispatcher
 infrastructure/  In-memory adapters (tests), Postgres audit trail, Redis, Kafka,
                  Ed25519 signer (cryptography), RFC 3161 TSA client (base interface)
-api/             FastAPI app (REST): POST /v1/metrics, GET /v1/scoreboard, GET /v1/proofs
-grpc_transport/  gRPC servicer (same application layer as REST); generated stubs via:
+api/             FastAPI app (REST): POST /v1/metrics, GET /v1/scoreboard/{decision_id},
+                 GET /v1/merkle-proof, GET /healthz
+grpc_transport/  gRPC servicer (same application layer as REST); generated stubs
+                 are committed (core_pb2.py, core_pb2_grpc.py). Regenerate with:
                    python -m grpc_tools.protoc -I grpc_transport \
                      --python_out=grpc_transport --grpc_python_out=grpc_transport \
                      grpc_transport/core.proto
-tests/           pytest suite (29 tests) + verify_core_logic_stdlib.py (stdlib-only)
-openapi.yaml     Hand-maintained OpenAPI 3.1 (diff against app.openapi() after route changes)
+tests/           pytest suite (63 passed, 1 skipped) + verify_core_logic_stdlib.py (stdlib-only)
+openapi.yaml     OpenAPI 3.1, regenerated from the FastAPI app (app.openapi());
+                 re-run the generation after route changes
 docker-compose.yml  Postgres, Redis, Kafka for local integration runs
 ```
 
@@ -42,12 +45,26 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt   # tests, lint, typecheck
 
-pytest -q                              # 29 tests
+pytest -q                              # 63 passed, 1 skipped (Kafka live test)
 python tests/verify_core_logic_stdlib.py  # 311 stdlib-only checks
 ```
 
-## Extension point: Domain Profiles
+## Configuration
 
+Environment variables (all optional):
+
+- `CORE_ENV` — `local` (default, in-memory adapters) or `docker` (Postgres/Redis/Kafka adapters).
+- `CORE_REQUIRED_METRICS` — JSON object mapping decision ids to their required
+  metric names, e.g. `{"loan-42": ["income.debt_ratio", "credit.score"]}`.
+  `GET /v1/scoreboard/{decision_id}` evaluates the policy against exactly this
+  set: missing required metrics project to `INSUFFICIENT_DATA` (I4). When the
+  variable is unset or malformed, the default is `{}` — the scoreboard then
+  treats any committed set as vacuously complete (historical behavior).
+- `MERKLE_MAX_LEAVES` / `MERKLE_MAX_SECONDS` — Merkle batch closing thresholds (defaults 1000 / 5).
+- `SIGNER_KEY_ID` — Ed25519 key id (default `core-dev-v1`).
+- `DATABASE_URL`, `REDIS_URL`, `KAFKA_BOOTSTRAP` — used when `CORE_ENV=docker`.
+
+## Extension point: Domain Profiles
 `UpdateMetricCommand.runtime_context` carries caller-specific context (e.g. planner version, session id) through the pipeline without changing the core. Domain-specific mappings (event → metric, policy thresholds) live outside this package and plug in via `runtime_context` — see `docs/domain-profiles/` for examples.
 
 ## Known gaps

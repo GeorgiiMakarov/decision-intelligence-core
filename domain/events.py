@@ -154,21 +154,20 @@ class RuntimeConfigUpdated(_RuntimeEvent):
     content_hash: str
     occurred_at: dt.datetime
 
-    # Union of everything Core can consume from the event bus. Used by the
 
-    # event dispatcher (application/event_dispatcher.py) to route by event_type.
-
-    InboundEvent = (
-        MetricProposed
-        | DebateOutcome
-        | RiskSignal
-        | ReconciledDecision
-        | EvidenceAttached
-        | GoalCreated
-        | GoalCancelled
-        | RuntimeArtifactDeployed
-        | RuntimeConfigUpdated
-    )
+# Union of everything Core can consume from the event bus. Used by the
+# event dispatcher (application/event_dispatcher.py) to route by event_type.
+InboundEvent = (
+    MetricProposed
+    | DebateOutcome
+    | RiskSignal
+    | ReconciledDecision
+    | EvidenceAttached
+    | GoalCreated
+    | GoalCancelled
+    | RuntimeArtifactDeployed
+    | RuntimeConfigUpdated
+)
 
 
 

@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30
 pydantic>=2.7
 grpcio>=1.64
 grpcio-tools>=1.64
+protobuf>=4.25
 aiokafka>=0.11
 redis>=5.0
 asyncpg>=0.29

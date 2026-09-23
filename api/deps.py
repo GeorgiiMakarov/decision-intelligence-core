@@ -11,6 +11,7 @@ the exact same wiring code with different CORE_ENV values.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 
@@ -38,6 +39,34 @@ class AppState:
     command_handler: CommandHandler
     projector: ScoreboardProjector
     required_metrics_by_decision: dict[str, list[str]]
+
+def _load_required_metrics() -> dict[str, list[str]]:
+    """Per-decision required metrics for the REST scoreboard, from the
+    CORE_REQUIRED_METRICS env var as JSON: {"decision-id": ["metric.a", ...]}.
+
+    Missing, empty, or malformed value -> {} (the historical default: the
+    scoreboard then treats any committed set as vacuously complete).
+    Malformed entries inside a well-formed object are dropped, not fatal.
+    """
+    raw = os.environ.get("CORE_REQUIRED_METRICS", "")
+    if not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for decision_id, metrics in parsed.items():
+        if (
+            isinstance(decision_id, str)
+            and isinstance(metrics, list)
+            and all(isinstance(m, str) for m in metrics)
+        ):
+            result[decision_id] = list(metrics)
+    return result
+
 
 async def build_app_state() -> AppState:
     """Async on purpose (not just sync-with-a-wrapper): PostgresAuditTrail.connect()
@@ -94,7 +123,7 @@ there is the natural call, not a workaround."""
     audit_trail=audit_trail, projection_store=projection_store, event_bus=event_bus,
     signer=signer, tsa=tsa, merkle_builder=merkle_builder, merkle_anchor=merkle_anchor,
     command_handler=command_handler, projector=projector,
-    required_metrics_by_decision={},
+    required_metrics_by_decision=_load_required_metrics(),
     )
 
 
